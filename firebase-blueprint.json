@@ -1,0 +1,48 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "Profile",
+      "description": "User profile with domain expansion stats",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "User identifier" },
+        "email": { "type": "string", "description": "User email address" },
+        "displayName": { "type": "string", "description": "Display name" },
+        "domainExpansions": { "type": "number", "description": "Total match victories" },
+        "domainArea": { "type": "number", "description": "Total domain area in square meters (domainExpansions * 67)" },
+        "createdAt": { "type": "string", "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "description": "Last update ISO timestamp" }
+      },
+      "required": ["id", "email", "domainExpansions", "domainArea"]
+    },
+    "Game": {
+      "title": "Game",
+      "description": "Live chess match between two players",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Match ID" },
+        "roomCode": { "type": "string", "description": "6-character uppercase alphanumeric room code" },
+        "whiteUserId": { "type": "string", "description": "White player user ID" },
+        "blackUserId": { "type": "string", "description": "Black player user ID or null" },
+        "fen": { "type": "string", "description": "Current chess board FEN notation" },
+        "status": { "type": "string", "enum": ["waiting", "active", "finished"], "description": "Current game status" },
+        "winnerId": { "type": "string", "description": "Winner user ID if completed" },
+        "whiteAura": { "type": "number", "description": "White player accumulated aura delta" },
+        "blackAura": { "type": "number", "description": "Black player accumulated aura delta" },
+        "createdAt": { "type": "string", "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "description": "Last update ISO timestamp" }
+      },
+      "required": ["id", "roomCode", "whiteUserId", "fen", "status", "whiteAura", "blackAura"]
+    }
+  },
+  "firestore": {
+    "/profiles/{userId}": {
+      "schema": "Profile",
+      "description": "User profile documents"
+    },
+    "/games/{gameId}": {
+      "schema": "Game",
+      "description": "Chess match documents"
+    }
+  }
+}

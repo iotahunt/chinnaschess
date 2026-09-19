@@ -1,0 +1,8 @@
+{
+  "name": "Chinna's Chess",
+  "description": "A production-ready neon-infused chess web app with live matchmaking, aura battle mechanics, and domain expansion tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

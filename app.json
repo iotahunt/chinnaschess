@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Chinna's Chess",
+    "slug": "chinnas-chess",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./public/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#09070f"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./public/favicon.ico"
+    },
+    "scheme": "chinnas-chess"
+  }
+}

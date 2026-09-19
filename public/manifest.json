@@ -1,0 +1,17 @@
+{
+  "short_name": "ChinnaChess",
+  "name": "Chinna's Chess - Neon Domain Battle",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#090A0F",
+  "theme_color": "#00F0FF",
+  "display": "standalone",
+  "orientation": "portrait"
+}
