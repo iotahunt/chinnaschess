@@ -186,13 +186,29 @@ export default function GameScreen() {
       if (result.isCheckmate) {
         nextStatus = 'finished';
         winnerId = movedColor === 'w' ? game.white_user_id : (game.black_user_id || 'guest_opponent');
-        // Increment winner's domain expansions
+        // Increment winner's domain expansions & area in Firestore
         if (winnerId && !winnerId.includes('opponent')) {
-          db.incrementDomainExpansion(winnerId).catch(console.error);
+          db.incrementDomainExpansion(winnerId, {
+            opponent: movedColor === 'w' ? 'Black Player' : 'White Player',
+            gameId: game.id,
+          }).catch(console.error);
+        }
+        const loserId = movedColor === 'w' ? game.black_user_id : game.white_user_id;
+        if (loserId && !loserId.includes('opponent')) {
+          db.recordDefeatOrDraw(loserId, false, {
+            opponent: movedColor === 'w' ? 'White Player' : 'Black Player',
+            gameId: game.id,
+          }).catch(console.error);
         }
         setGameOverModalOpen(true);
       } else if (result.isDraw) {
         nextStatus = 'finished';
+        if (game.white_user_id) {
+          db.recordDefeatOrDraw(game.white_user_id, true, { opponent: 'Black Player', gameId: game.id }).catch(console.error);
+        }
+        if (game.black_user_id) {
+          db.recordDefeatOrDraw(game.black_user_id, true, { opponent: 'White Player', gameId: game.id }).catch(console.error);
+        }
         setGameOverModalOpen(true);
       }
 
@@ -249,8 +265,15 @@ export default function GameScreen() {
 
     const opponentId = playerColor === 'w' ? game.black_user_id : game.white_user_id;
     if (opponentId) {
-      await db.incrementDomainExpansion(opponentId);
+      await db.incrementDomainExpansion(opponentId, {
+        opponent: user.displayName || user.email || 'Adversary',
+        gameId: game.id,
+      });
     }
+    await db.recordDefeatOrDraw(user.id, false, {
+      opponent: opponentId ? 'Opponent' : 'Adversary',
+      gameId: game.id,
+    });
 
     const updated = await db.updateGameState({
       gameId: game.id,

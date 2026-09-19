@@ -48,11 +48,29 @@ export const supabase: SupabaseClient = createClient(
   }
 );
 
+export interface DomainBattleRecord {
+  id: string;
+  date: string;
+  result: 'victory' | 'defeat' | 'draw';
+  area_change: number;
+  opponent?: string;
+  game_id?: string;
+}
+
 export interface ProfileRecord {
   id: string;
   email: string;
+  display_name?: string;
   domain_expansions: number;
+  domain_area: number;
+  aura_grade?: string;
+  wins: number;
+  losses: number;
+  draws: number;
+  games_played: number;
+  recent_domains?: DomainBattleRecord[];
   created_at: string;
+  updated_at?: string;
 }
 
 export interface GameRecord {
@@ -121,8 +139,23 @@ export function notifyLocalGameSubscribers(game: GameRecord) {
 // Uses built-in server API + SSE for instant cross-device play anywhere,
 // with optional Supabase synchronization.
 export const db = {
-  // Profiles
+  // Profiles & Domain Expansion Database
   async getProfile(userId: string): Promise<ProfileRecord | null> {
+    // 1. Direct Firestore lookup (authoritative)
+    try {
+      const snap = await getDoc(doc(firestore, 'profiles', userId));
+      if (snap.exists()) {
+        const data = snap.data() as ProfileRecord;
+        const profiles = getLocalProfiles();
+        profiles[userId] = data;
+        saveLocalProfiles(profiles);
+        return data;
+      }
+    } catch (err) {
+      console.warn('Firestore getProfile warning:', err);
+    }
+
+    // 2. Server API fallback if Express backend is running
     try {
       const res = await fetch(`/api/profiles/${encodeURIComponent(userId)}`);
       if (res.ok) {
@@ -133,130 +166,172 @@ export const db = {
       // Fallback
     }
 
-    try {
-      const snap = await getDoc(doc(firestore, 'profiles', userId));
-      if (snap.exists()) {
-        return snap.data() as ProfileRecord;
-      }
-    } catch {
-      // Fallback
-    }
-
-    if (isSupabaseConfigured) {
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .single();
-        if (!error && data) return data as ProfileRecord;
-      } catch {
-        // Fallback
-      }
-    }
-
+    // 3. Local cached profile
     const profiles = getLocalProfiles();
     return profiles[userId] || null;
   },
 
   async upsertProfile(profile: Partial<ProfileRecord> & { id: string; email: string }): Promise<ProfileRecord> {
-    try {
-      const res = await fetch('/api/profiles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(profile),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const profiles = getLocalProfiles();
-        profiles[profile.id] = data;
-        saveLocalProfiles(profiles);
-        setDoc(doc(firestore, 'profiles', profile.id), data, { merge: true }).catch(() => {});
-        return data as ProfileRecord;
-      }
-    } catch {
-      // Fallback
-    }
+    const existing = (await this.getProfile(profile.id)) || getLocalProfiles()[profile.id];
+    const expansions = profile.domain_expansions ?? existing?.domain_expansions ?? 0;
+    const domainArea = expansions * 67;
 
-    if (isSupabaseConfigured) {
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .upsert({
-            id: profile.id,
-            email: profile.email,
-            domain_expansions: profile.domain_expansions ?? 0,
-          })
-          .select()
-          .single();
-        if (!error && data) {
-          setDoc(doc(firestore, 'profiles', profile.id), data, { merge: true }).catch(() => {});
-          return data as ProfileRecord;
-        }
-      } catch {
-        // Fallback
-      }
-    }
+    const calculateAuraGrade = (exp: number): string => {
+      if (exp >= 15) return 'Special Grade Jujutsu Master';
+      if (exp >= 8) return 'Grade 1 Jujutsu Sorcerer';
+      if (exp >= 4) return 'Grade 2 Jujutsu Sorcerer';
+      if (exp >= 1) return 'Grade 3 Sorcerer';
+      return 'Grade 4 Novice';
+    };
 
-    const profiles = getLocalProfiles();
-    const existing = profiles[profile.id];
     const updated: ProfileRecord = {
       id: profile.id,
       email: profile.email,
-      domain_expansions: profile.domain_expansions ?? existing?.domain_expansions ?? 0,
+      display_name: profile.display_name ?? existing?.display_name ?? (profile.email.split('@')[0] || 'Sorcerer'),
+      domain_expansions: expansions,
+      domain_area: domainArea,
+      aura_grade: profile.aura_grade ?? existing?.aura_grade ?? calculateAuraGrade(expansions),
+      wins: profile.wins ?? existing?.wins ?? 0,
+      losses: profile.losses ?? existing?.losses ?? 0,
+      draws: profile.draws ?? existing?.draws ?? 0,
+      games_played: profile.games_played ?? existing?.games_played ?? 0,
+      recent_domains: profile.recent_domains ?? existing?.recent_domains ?? [],
       created_at: existing?.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
+
+    // 1. Direct Firestore write (Real-time Cloud persistence)
+    try {
+      await setDoc(doc(firestore, 'profiles', profile.id), updated, { merge: true });
+    } catch (err) {
+      console.warn('Firestore upsertProfile warning:', err);
+    }
+
+    // 2. Local cache
+    const profiles = getLocalProfiles();
     profiles[profile.id] = updated;
     saveLocalProfiles(profiles);
-    setDoc(doc(firestore, 'profiles', profile.id), updated, { merge: true }).catch(() => {});
+
+    // 3. Server API fallback sync
+    fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    }).catch(() => {});
+
     return updated;
   },
 
-  async incrementDomainExpansion(userId: string): Promise<number> {
-    let nextCount = 1;
-    try {
-      const res = await fetch(`/api/profiles/${encodeURIComponent(userId)}/domain-expansion`, {
-        method: 'POST',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        nextCount = data.domain_expansions;
-      }
-    } catch {
-      // Fallback
+  async incrementDomainExpansion(userId: string, battleInfo?: { opponent?: string; gameId?: string }): Promise<number> {
+    let currentProfile = await this.getProfile(userId);
+    if (!currentProfile) {
+      currentProfile = {
+        id: userId,
+        email: `${userId}@chinna.chess`,
+        domain_expansions: 0,
+        domain_area: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        games_played: 0,
+        created_at: new Date().toISOString(),
+      };
     }
 
-    if (isSupabaseConfigured) {
-      try {
-        const { data } = await supabase.from('profiles').select('domain_expansions').eq('id', userId).single();
-        const current = data?.domain_expansions ?? 0;
-        const next = current + 1;
-        await supabase.from('profiles').update({ domain_expansions: next }).eq('id', userId);
-        nextCount = next;
-      } catch {
-        // Fallback
-      }
+    const nextCount = (currentProfile.domain_expansions || 0) + 1;
+    const nextArea = nextCount * 67;
+    const nextWins = (currentProfile.wins || 0) + 1;
+    const nextGames = (currentProfile.games_played || 0) + 1;
+
+    const calculateAuraGrade = (exp: number): string => {
+      if (exp >= 15) return 'Special Grade Jujutsu Master';
+      if (exp >= 8) return 'Grade 1 Jujutsu Sorcerer';
+      if (exp >= 4) return 'Grade 2 Jujutsu Sorcerer';
+      if (exp >= 1) return 'Grade 3 Sorcerer';
+      return 'Grade 4 Novice';
+    };
+
+    const newBattle: DomainBattleRecord = {
+      id: 'domain_' + Date.now(),
+      date: new Date().toISOString(),
+      result: 'victory',
+      area_change: 67,
+      opponent: battleInfo?.opponent || 'Adversary',
+      game_id: battleInfo?.gameId,
+    };
+
+    const recentDomains = [newBattle, ...(currentProfile.recent_domains || [])].slice(0, 15);
+
+    const updatedData: Partial<ProfileRecord> = {
+      domain_expansions: nextCount,
+      domain_area: nextArea,
+      wins: nextWins,
+      games_played: nextGames,
+      aura_grade: calculateAuraGrade(nextCount),
+      recent_domains: recentDomains,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Save directly to Firestore
+    try {
+      await setDoc(doc(firestore, 'profiles', userId), updatedData, { merge: true });
+    } catch (err) {
+      console.warn('Firestore incrementDomainExpansion warning:', err);
+    }
+
+    // Update local cache
+    const profiles = getLocalProfiles();
+    if (profiles[userId]) {
+      profiles[userId] = { ...profiles[userId], ...updatedData };
+      saveLocalProfiles(profiles);
+    }
+
+    // Sync to Express server memory if available
+    fetch(`/api/profiles/${encodeURIComponent(userId)}/domain-expansion`, {
+      method: 'POST',
+    }).catch(() => {});
+
+    return nextCount;
+  },
+
+  async recordDefeatOrDraw(userId: string, isDraw: boolean, battleInfo?: { opponent?: string; gameId?: string }): Promise<void> {
+    const currentProfile = await this.getProfile(userId);
+    if (!currentProfile) return;
+
+    const nextGames = (currentProfile.games_played || 0) + 1;
+    const nextLosses = isDraw ? currentProfile.losses : (currentProfile.losses || 0) + 1;
+    const nextDraws = isDraw ? (currentProfile.draws || 0) + 1 : currentProfile.draws;
+
+    const newBattle: DomainBattleRecord = {
+      id: 'battle_' + Date.now(),
+      date: new Date().toISOString(),
+      result: isDraw ? 'draw' : 'defeat',
+      area_change: 0,
+      opponent: battleInfo?.opponent || 'Adversary',
+      game_id: battleInfo?.gameId,
+    };
+
+    const recentDomains = [newBattle, ...(currentProfile.recent_domains || [])].slice(0, 15);
+
+    const updatedData: Partial<ProfileRecord> = {
+      losses: nextLosses,
+      draws: nextDraws,
+      games_played: nextGames,
+      recent_domains: recentDomains,
+      updated_at: new Date().toISOString(),
+    };
+
+    try {
+      await setDoc(doc(firestore, 'profiles', userId), updatedData, { merge: true });
+    } catch (err) {
+      console.warn('Firestore recordDefeatOrDraw error:', err);
     }
 
     const profiles = getLocalProfiles();
     if (profiles[userId]) {
-      profiles[userId].domain_expansions = (profiles[userId].domain_expansions || 0) + 1;
-      nextCount = profiles[userId].domain_expansions;
+      profiles[userId] = { ...profiles[userId], ...updatedData };
       saveLocalProfiles(profiles);
     }
-
-    // Also persist to Firestore
-    setDoc(
-      doc(firestore, 'profiles', userId),
-      {
-        domain_expansions: nextCount,
-        domain_area: nextCount * 67,
-        updated_at: new Date().toISOString(),
-      },
-      { merge: true }
-    ).catch(() => {});
-
-    return nextCount;
   },
 
   // Games

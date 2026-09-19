@@ -54,26 +54,49 @@ export default function HomeScreen() {
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row items-center gap-3 mt-8 w-full max-w-md">
-          <NeonButton
-            variant="primary"
-            size="lg"
-            glowPulse
-            className="w-full sm:flex-1"
-            icon={<Play className="w-5 h-5 fill-current" />}
-            onClick={handleStartPlaying}
-          >
-            {user ? 'Enter Battle Lobby' : 'Play Now (Guest)'}
-          </NeonButton>
-
-          {!user && (
-            <NeonButton
-              variant="secondary"
-              size="lg"
-              className="w-full sm:flex-1"
-              onClick={() => push('/sign-in')}
-            >
-              Sign In / Up
-            </NeonButton>
+          {user ? (
+            <>
+              <NeonButton
+                variant="primary"
+                size="lg"
+                glowPulse
+                className="w-full sm:flex-1"
+                icon={<Play className="w-5 h-5 fill-current" />}
+                onClick={() => push('/lobby')}
+              >
+                Enter Battle Lobby
+              </NeonButton>
+              <NeonButton
+                variant="secondary"
+                size="lg"
+                className="w-full sm:flex-1"
+                onClick={() => push('/profile')}
+              >
+                My Domain Profile
+              </NeonButton>
+            </>
+          ) : (
+            <>
+              <NeonButton
+                variant="primary"
+                size="lg"
+                glowPulse
+                className="w-full sm:flex-1"
+                icon={<Sparkles className="w-5 h-5 fill-current" />}
+                onClick={() => push('/sign-up')}
+              >
+                Sign Up & Save Domain
+              </NeonButton>
+              <NeonButton
+                variant="secondary"
+                size="lg"
+                className="w-full sm:flex-1"
+                icon={<Play className="w-5 h-5" />}
+                onClick={handleStartPlaying}
+              >
+                Quick Guest Play
+              </NeonButton>
+            </>
           )}
         </div>
       </div>

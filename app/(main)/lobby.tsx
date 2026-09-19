@@ -5,7 +5,7 @@ import { useRouter } from '@/lib/router';
 import { NeonButton } from '@/components/NeonButton';
 import { NeonInput } from '@/components/NeonInput';
 import { db, GameRecord } from '@/lib/supabase';
-import { Users, Plus, Hash, Copy, Check, Play, Zap, ArrowRight, Link2, Clipboard, Sparkles } from 'lucide-react';
+import { Users, Plus, Hash, Copy, Check, Play, Zap, ArrowRight, Link2, Clipboard, Sparkles, Shield, Award, UserPlus, ShieldAlert } from 'lucide-react';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -39,7 +39,7 @@ function cleanRoomInput(raw: string): string {
 
 export default function LobbyScreen() {
   const { tokens } = useTheme();
-  const { user, signInAsGuest } = useAuth();
+  const { user, profile, signInAsGuest } = useAuth();
   const { push, replace } = useRouter();
 
   const [createdGame, setCreatedGame] = useState<GameRecord | null>(null);
@@ -213,8 +213,85 @@ export default function LobbyScreen() {
     }
   };
 
+  const domainExpansions = profile?.domain_expansions ?? 0;
+  const domainArea = profile?.domain_area ?? domainExpansions * 67;
+
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-4 max-w-4xl mx-auto w-full">
+      {/* Active Profile Status Header Card */}
+      <div
+        className="w-full max-w-2xl mb-6 p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg select-none"
+        style={{
+          backgroundColor: tokens.cardBg,
+          borderColor: tokens.cardBorder,
+          boxShadow: `0 0 12px ${tokens.neonPrimary}18`,
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center border"
+            style={{
+              backgroundColor: `${tokens.neonPrimary}20`,
+              borderColor: tokens.neonPrimary,
+              color: tokens.neonPrimary,
+            }}
+          >
+            <Shield className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-extrabold text-sm" style={{ color: tokens.text }}>
+                {profile?.display_name || user?.displayName || 'Sorcerer'}
+              </span>
+              <span
+                className="text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider"
+                style={{
+                  backgroundColor: user?.isGuest ? 'rgba(255,170,0,0.15)' : `${tokens.neonPrimary}20`,
+                  borderColor: user?.isGuest ? '#ffaa00' : tokens.neonPrimary,
+                  color: user?.isGuest ? '#ffaa00' : tokens.neonPrimary,
+                }}
+              >
+                {user?.isGuest ? 'Guest Session' : 'Firebase Profile'}
+              </span>
+            </div>
+            <div className="text-xs flex items-center gap-2 mt-0.5" style={{ color: tokens.textSecondary }}>
+              <span>Rank: <strong className="text-pink-400">{profile?.aura_grade || 'Grade 4 Novice'}</strong></span>
+              <span>•</span>
+              <span>Domain: <strong style={{ color: tokens.neonPrimary }}>+{domainArea} m²</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => push('/profile')}
+            className="px-3 py-1.5 rounded-xl border text-xs font-bold transition-all hover:scale-105 cursor-pointer"
+            style={{
+              backgroundColor: tokens.bg,
+              borderColor: tokens.cardBorder,
+              color: tokens.text,
+            }}
+          >
+            {domainExpansions} Expansions
+          </button>
+          {user?.isGuest && (
+            <button
+              onClick={() => push('/sign-up')}
+              className="px-3 py-1.5 rounded-xl border text-xs font-black transition-all hover:scale-105 active:scale-95 cursor-pointer flex items-center gap-1.5"
+              style={{
+                backgroundColor: tokens.neonPrimary,
+                borderColor: tokens.neonPrimary,
+                color: tokens.mode === 'dark' ? '#09070f' : '#ffffff',
+                boxShadow: `0 0 10px ${tokens.neonPrimary}55`,
+              }}
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Save Profile</span>
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="text-center mb-8">
         <div
           className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2"

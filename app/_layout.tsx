@@ -2,14 +2,16 @@ import React from 'react';
 import { ThemeProvider, useTheme } from '../lib/theme';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { RouterProvider, useRouter, usePathname, Link } from '../lib/router';
-import { Sun, Moon, Shield, User as UserIcon, Sword, LogOut } from 'lucide-react';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { Sun, Moon, Shield, Sword, LogOut, Sparkles, UserPlus } from 'lucide-react';
 
 const Header: React.FC = () => {
   const { tokens, theme, toggleTheme } = useTheme();
   const { user, profile, signOut } = useAuth();
   const pathname = usePathname();
   const { push } = useRouter();
+
+  const domainExpansions = profile?.domain_expansions ?? 0;
+  const domainArea = profile?.domain_area ?? domainExpansions * 67;
 
   return (
     <header
@@ -51,21 +53,6 @@ const Header: React.FC = () => {
 
         {/* Navigation & Controls */}
         <div className="flex items-center gap-2 sm:gap-4">
-          {!isSupabaseConfigured && (
-            <div
-              title="Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to .env.local for remote multiplayer sync"
-              className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border"
-              style={{
-                backgroundColor: 'rgba(255,170,0,0.12)',
-                borderColor: 'rgba(255,170,0,0.4)',
-                color: '#ffb300',
-              }}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-              Demo / Local Mode
-            </div>
-          )}
-
           {user ? (
             <div className="flex items-center gap-2 sm:gap-3">
               {/* Lobby Quick Link */}
@@ -83,7 +70,7 @@ const Header: React.FC = () => {
                 Lobby
               </button>
 
-              {/* Profile Link with Domain Expansions */}
+              {/* Profile Link with Domain Expansions & Area */}
               <button
                 onClick={() => push('/profile')}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all cursor-pointer hover:scale-105"
@@ -92,12 +79,33 @@ const Header: React.FC = () => {
                   borderColor: pathname === '/profile' ? tokens.neonPrimary : tokens.cardBorder,
                   boxShadow: pathname === '/profile' ? `0 0 10px ${tokens.neonPrimary}44` : 'none',
                 }}
+                title="View Domain Expansions Profile"
               >
                 <Shield className="w-3.5 h-3.5" style={{ color: tokens.neonPrimary }} />
-                <span className="text-xs font-bold hidden sm:inline" style={{ color: tokens.text }}>
-                  {profile?.domain_expansions ?? 0} Exp
+                <span className="text-xs font-bold" style={{ color: tokens.text }}>
+                  {domainExpansions} <span className="hidden sm:inline">Exp</span>
+                </span>
+                <span className="text-[10px] opacity-70 font-mono hidden md:inline" style={{ color: tokens.neonPrimary }}>
+                  +{domainArea}m²
                 </span>
               </button>
+
+              {/* If in guest mode, show quick convert to password account */}
+              {user.isGuest && (
+                <button
+                  onClick={() => push('/sign-up')}
+                  className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-extrabold rounded-lg border cursor-pointer hover:scale-105 transition-transform"
+                  style={{
+                    backgroundColor: `${tokens.neonPrimary}18`,
+                    borderColor: tokens.neonPrimary,
+                    color: tokens.neonPrimary,
+                  }}
+                  title="Protect domain expansions with a password"
+                >
+                  <UserPlus className="w-3 h-3" />
+                  <span>Register</span>
+                </button>
+              )}
 
               {/* Sign Out */}
               <button
