@@ -71,7 +71,7 @@ async function startServer() {
       }
 
       const upperCode = String(roomCode).trim().toUpperCase();
-      const gameId = 'game_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+      const gameId = req.body.id || ('game_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8));
 
       const newGame: GameRecord = {
         id: gameId,

@@ -306,8 +306,8 @@ export const db = {
     // 3. Fallback to local store if needed
     if (!resultGame) {
       resultGame = {
-        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'game_' + Math.random().toString(36).slice(2, 9),
-        room_code: params.roomCode,
+        id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'game_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+        room_code: params.roomCode.trim().toUpperCase(),
         white_user_id: params.whiteUserId,
         black_user_id: null,
         fen: params.startingFen,
@@ -402,7 +402,34 @@ export const db = {
   async joinGame(gameId: string, blackUserId: string): Promise<GameRecord | null> {
     let joinedGame: GameRecord | null = null;
 
-    // 1. Try server API
+    // 1. Direct Cloud Firestore join (Cross-device, Vercel & mobile instant sync)
+    try {
+      const docRef = doc(firestore, 'games', gameId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        const existingData = snap.data() as GameRecord;
+        if (existingData.black_user_id && existingData.black_user_id !== blackUserId) {
+          throw new Error('This room already has two players.');
+        }
+        joinedGame = {
+          ...existingData,
+          black_user_id: blackUserId,
+          status: 'active',
+          updated_at: new Date().toISOString(),
+        };
+        await setDoc(docRef, joinedGame, { merge: true });
+      }
+    } catch (err: unknown) {
+      if ((err as { code?: string })?.code === 'permission-denied') {
+        handleFirestoreError(err, OperationType.WRITE, `games/${gameId}`);
+      }
+      if (err instanceof Error && err.message.includes('already has two players')) {
+        throw err;
+      }
+      console.warn('Firestore direct join error:', err);
+    }
+
+    // 2. Try server API if Express server is active
     try {
       const res = await fetch(`/api/games/${encodeURIComponent(gameId)}/join`, {
         method: 'POST',
@@ -410,13 +437,14 @@ export const db = {
         body: JSON.stringify({ blackUserId }),
       });
       if (res.ok) {
-        joinedGame = (await res.json()) as GameRecord;
+        const serverGame = (await res.json()) as GameRecord;
+        if (!joinedGame) joinedGame = serverGame;
       }
-    } catch (err) {
-      console.warn('Server join failed:', err);
+    } catch {
+      // Server optional on static hosting like Vercel
     }
 
-    // 2. Try Supabase
+    // 3. Fallback to Supabase if configured
     if (!joinedGame && isSupabaseConfigured) {
       try {
         const { data, error } = await supabase
@@ -435,7 +463,7 @@ export const db = {
       }
     }
 
-    // 3. Fallback local store
+    // 4. Fallback local store
     if (!joinedGame) {
       const games = getLocalGames();
       const game = games[gameId];
@@ -444,24 +472,18 @@ export const db = {
         game.status = 'active';
         game.updated_at = new Date().toISOString();
         games[gameId] = game;
-        saveLocalGames(games);
         joinedGame = game;
       }
     }
 
+    // 5. Cache locally & broadcast updates
     if (joinedGame) {
+      const games = getLocalGames();
+      games[gameId] = joinedGame;
+      saveLocalGames(games);
       notifyLocalGameSubscribers(joinedGame);
-      // Sync to Firestore
-      try {
-        await setDoc(doc(firestore, 'games', gameId), joinedGame, { merge: true });
-      } catch (err: unknown) {
-        if ((err as { code?: string })?.code === 'permission-denied') {
-          handleFirestoreError(err, OperationType.WRITE, `games/${gameId}`);
-        }
-        console.warn('Firestore join sync fallback:', err);
-      }
 
-      // Sync to server memory
+      // Keep server memory primed if available
       fetch('/api/games/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -473,22 +495,29 @@ export const db = {
   },
 
   async getGame(gameId: string): Promise<GameRecord | null> {
-    // 1. Try server API
+    // 1. Try Firestore first
     try {
-      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
-      if (res.ok) {
-        const game = (await res.json()) as GameRecord;
+      const snap = await getDoc(doc(firestore, 'games', gameId));
+      if (snap.exists()) {
+        const game = snap.data() as GameRecord;
+        const games = getLocalGames();
+        games[game.id] = game;
+        saveLocalGames(games);
         return game;
       }
     } catch {
       // Fallback
     }
 
-    // 2. Try Firestore
+    // 2. Try server API
     try {
-      const snap = await getDoc(doc(firestore, 'games', gameId));
-      if (snap.exists()) {
-        return snap.data() as GameRecord;
+      const res = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
+      if (res.ok) {
+        const game = (await res.json()) as GameRecord;
+        const games = getLocalGames();
+        games[game.id] = game;
+        saveLocalGames(games);
+        return game;
       }
     } catch {
       // Fallback
@@ -508,7 +537,7 @@ export const db = {
       }
     }
 
-    // 4. Fallback
+    // 4. Fallback to local store
     const games = getLocalGames();
     return games[gameId] || null;
   },
@@ -532,7 +561,22 @@ export const db = {
 
     let updatedGame: GameRecord | null = null;
 
-    // 1. Try server API
+    // 1. Direct Firestore write (Universal cloud persistence)
+    try {
+      const docRef = doc(firestore, 'games', params.gameId);
+      await setDoc(docRef, updatePayload, { merge: true });
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        updatedGame = snap.data() as GameRecord;
+      }
+    } catch (err: unknown) {
+      if ((err as { code?: string })?.code === 'permission-denied') {
+        handleFirestoreError(err, OperationType.UPDATE, `games/${params.gameId}`);
+      }
+      console.warn('Firestore updateGameState warning:', err);
+    }
+
+    // 2. Try server API if present
     try {
       const res = await fetch(`/api/games/${encodeURIComponent(params.gameId)}`, {
         method: 'PATCH',
@@ -540,13 +584,14 @@ export const db = {
         body: JSON.stringify(updatePayload),
       });
       if (res.ok) {
-        updatedGame = (await res.json()) as GameRecord;
+        const serverGame = (await res.json()) as GameRecord;
+        if (!updatedGame) updatedGame = serverGame;
       }
-    } catch (err) {
-      console.warn('Server update error:', err);
+    } catch {
+      // server optional
     }
 
-    // 2. Try Supabase
+    // 3. Try Supabase
     if (!updatedGame && isSupabaseConfigured) {
       try {
         const { data, error } = await supabase
@@ -561,31 +606,20 @@ export const db = {
       }
     }
 
-    // 3. Fallback
+    // 4. Fallback to local store
     if (!updatedGame) {
       const games = getLocalGames();
       if (games[params.gameId]) {
-        const updated = { ...games[params.gameId], ...updatePayload };
-        games[params.gameId] = updated;
-        saveLocalGames(games);
-        updatedGame = updated;
+        updatedGame = { ...games[params.gameId], ...updatePayload };
       }
     }
 
+    // 5. Update local cache and notify subscribers
     if (updatedGame) {
+      const games = getLocalGames();
+      games[params.gameId] = updatedGame;
+      saveLocalGames(games);
       notifyLocalGameSubscribers(updatedGame);
-      // Sync to Firestore
-      try {
-        setDoc(doc(firestore, 'games', params.gameId), updatePayload, { merge: true }).catch((err: unknown) => {
-          if ((err as { code?: string })?.code === 'permission-denied') {
-            handleFirestoreError(err, OperationType.UPDATE, `games/${params.gameId}`);
-          }
-        });
-      } catch (err: unknown) {
-        if ((err as { code?: string })?.code === 'permission-denied') {
-          handleFirestoreError(err, OperationType.UPDATE, `games/${params.gameId}`);
-        }
-      }
     }
 
     return updatedGame;
@@ -628,7 +662,11 @@ export const db = {
         doc(firestore, 'games', gameId),
         (snap) => {
           if (snap.exists()) {
-            onUpdate(snap.data() as GameRecord);
+            const data = snap.data() as GameRecord;
+            const games = getLocalGames();
+            games[gameId] = data;
+            saveLocalGames(games);
+            onUpdate(data);
           }
         },
         (error) => {
@@ -643,18 +681,28 @@ export const db = {
       console.warn('Firestore subscription error:', err);
     }
 
-    // 4. Fallback periodic polling every 2 seconds to guarantee sync even on mobile background tabs
+    // 4. Fallback periodic polling every 2.5 seconds to guarantee sync even on mobile background tabs
     const pollInterval = setInterval(async () => {
       try {
         const res = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
         if (res.ok) {
           const game = (await res.json()) as GameRecord;
           onUpdate(game);
+          return;
         }
       } catch {
         // Ignore polling errors
       }
-    }, 2000);
+      try {
+        const snap = await getDoc(doc(firestore, 'games', gameId));
+        if (snap.exists()) {
+          const fresh = snap.data() as GameRecord;
+          onUpdate(fresh);
+        }
+      } catch {
+        // Ignore
+      }
+    }, 2500);
 
     // 5. Supabase Realtime channel if configured
     let channel: ReturnType<typeof supabase.channel> | null = null;
